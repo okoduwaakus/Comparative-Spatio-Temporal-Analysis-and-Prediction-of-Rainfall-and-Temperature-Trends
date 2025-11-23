@@ -1,0 +1,95 @@
+Map.centerObject(region)
+
+// ------------------------------
+// 📈 PART A: Annual Rainfall Time Series (1950–2024)
+// ------------------------------
+var startYear = 1950;
+var endYear = 2024;
+
+var dataset = ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY_AGGR")
+  .filterBounds(region)
+  .filterDate(startYear + '-01-01', endYear + '-12-31')
+  .select('total_precipitation_sum');
+
+// Create annual sums
+var annualRainfall = ee.ImageCollection(
+  ee.List.sequence(startYear, endYear).map(function(year) {
+    year = ee.Number(year);
+    var start = ee.Date.fromYMD(year, 1, 1);
+    var end = start.advance(1, 'year');
+    
+    var yearlySum = dataset.filterDate(start, end).sum()
+      .multiply(1000) // Convert from meters to millimeters
+      .rename('rainfall_mm')
+      .set('year', year);
+    
+    return yearlySum;
+  })
+);
+
+// Reduce to one value per year over region
+var features = annualRainfall.map(function(image) {
+  var stats = image.reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: region,
+    scale: 10000,
+    maxPixels: 1e13
+  });
+  
+  return ee.Feature(null, stats).set('year', image.get('year'));
+});
+
+var featureCollection = ee.FeatureCollection(features);
+
+// Print table and chart
+print('Annual Rainfall (mm) from 1950 to 2024', featureCollection);
+
+var chart = ui.Chart.feature.byFeature({
+  features: featureCollection,
+  xProperty: 'year',
+  yProperties: ['rainfall_mm']
+}).setChartType('LineChart').setOptions({
+  title: 'Annual Rainfall (1950–2024)',
+  hAxis: { title: 'Year' },
+  vAxis: { title: 'Rainfall (mm)' },
+  lineWidth: 2,
+  pointSize: 4,
+  colors: ['blue']
+});
+
+print(chart);
+
+// Optional CSV export
+Export.table.toDrive({
+  collection: featureCollection,
+  description: 'AnnualRainfall_1950_2024',
+  fileFormat: 'CSV'
+});
+
+
+// ------------------------------
+// 🗺️ PART B: Export Rainfall Map for a Decade
+// ------------------------------
+// You can change these dates manually
+var dec_start = '2020-01-01';
+var dec_end = '2024-12-31';
+
+var decadalCol = dataset
+  .filterDate(dec_start, dec_end)
+  .map(function(img) {
+    return img.multiply(1000).rename('rainfall_mm').clip(region); // Convert to mm
+  });
+
+var decadalSum = decadalCol.mean();
+
+Map.addLayer(decadalSum)
+// Export rainfall sum for the selected decade
+Export.image.toDrive({
+  image: decadalSum,
+  description: 'Rainfall_2020_24_Lag' + dec_start.slice(0, 4) + '_' + dec_end.slice(0, 4),
+  folder: 'Rainfall_Exports',
+  fileNamePrefix: 'Rainfall_' + dec_start.slice(0, 4) + '_' + dec_end.slice(0, 4),
+  region: region.geometry(),
+  scale: 11132,
+  crs: 'EPSG:4326'
+});
