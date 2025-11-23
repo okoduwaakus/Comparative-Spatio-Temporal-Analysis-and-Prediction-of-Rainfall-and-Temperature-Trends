@@ -62,7 +62,7 @@ print(chart);
 // Optional: export the CSV to Drive
 Export.table.toDrive({
   collection: featureCollection,
-  description: 'AnnualMeanTemperature_1954_2024',
+  description: 'AnnualMeanTemperature_1950_2024',
   fileFormat: 'CSV'
 });
 
