@@ -1,0 +1,97 @@
+// ------------------------------
+// 📈 PART A: Annual Mean Time Series (1954–2024)
+// ------------------------------
+var startYear = 1950;
+var endYear = 2024;
+
+// Load ERA5-Land Monthly Aggregated temperature
+var dataset = ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY_AGGR")
+  .filterBounds(region)
+  .filterDate(startYear + '-01-01', endYear + '-12-31')
+  .select('temperature_2m');
+
+// Generate one image per year
+var annualMeans = ee.ImageCollection(
+  ee.List.sequence(startYear, endYear).map(function(year) {
+    year = ee.Number(year);
+    var start = ee.Date.fromYMD(year, 1, 1);
+    var end = start.advance(1, 'year');
+    
+    var mean = dataset.filterDate(start, end).mean()
+      .subtract(273.15) // Kelvin to Celsius
+      .rename('temperature_2m_C')
+      .set('year', year);
+    
+    return mean;
+  })
+);
+
+// Reduce each image to one value over the region, return as Feature
+var features = annualMeans.map(function(image) {
+  var stats = image.reduceRegion({
+    reducer: ee.Reducer.mean(),
+    geometry: region,
+    scale: 10000,
+    maxPixels: 1e13
+  });
+  
+  return ee.Feature(null, stats).set('year', image.get('year'));
+});
+
+var featureCollection = ee.FeatureCollection(features);
+
+// Print the FeatureCollection as CSV table
+print('Annual Mean Temperature (°C) from 1954 to 2024', featureCollection);
+
+// Chart the time series
+var chart = ui.Chart.feature.byFeature({
+  features: featureCollection,
+  xProperty: 'year',
+  yProperties: ['temperature_2m_C']
+}).setChartType('LineChart').setOptions({
+  title: 'Annual Mean Temperature (1954–2024)',
+  hAxis: { title: 'Year' },
+  vAxis: { title: 'Temperature (°C)' },
+  lineWidth: 2,
+  pointSize: 4,
+  colors: ['red']
+});
+
+print(chart);
+
+// Optional: export the CSV to Drive
+Export.table.toDrive({
+  collection: featureCollection,
+  description: 'AnnualMeanTemperature_1954_2024',
+  fileFormat: 'CSV'
+});
+
+
+// ------------------------------
+// 🗺️ PART B: Export Mean Map for Any Decade
+// ------------------------------
+// Just change the dates below to export a different decade
+
+var dec_start = '2020-01-01';
+var dec_end = '2024-12-31';
+
+// Load and filter temperature
+var decadalCol = dataset
+  .filterDate(dec_start, dec_end)
+  .map(function(img) {
+    return img.subtract(273.15).rename('temperature_2m_C').clip(region);
+  });
+
+// Compute the mean for the decade
+var decadalMean = decadalCol.mean();
+
+// Export to Drive
+Export.image.toDrive({
+  image: decadalMean,
+  description: 'Temp_Lagos' + dec_start.slice(0, 4) + '_' + dec_end.slice(0, 4),
+  folder: 'Temperature_Exports',
+  fileNamePrefix: 'TempLagos_' + dec_start.slice(0, 4) + '_' + dec_end.slice(0, 4),
+  region: region.geometry(),
+  scale: 11132,
+  crs: 'EPSG:4326'
+});
